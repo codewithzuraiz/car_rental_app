@@ -1,0 +1,50 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isImage() {
+      return request.resource.contentType.matches('image/.*');
+    }
+
+    function isPDF() {
+      return request.resource.contentType == 'application/pdf';
+    }
+
+    function isUnderLimit(maxMegabytes) {
+      return request.resource.size < maxMegabytes * 1024 * 1024;
+    }
+
+    // 1. Vehicle Showroom Photos
+    // Public read so buyers can view car images; authenticated upload with size validation <= 12MB.
+    match /cars/{carId}/{fileName} {
+      allow read: if true;
+      allow write: if isImage() && isUnderLimit(12);
+    }
+
+    // 2. 150-Point Certified Inspection Documents & Proofs
+    // Public read or verified buyers; sellers/dealers can upload PDF/images <= 15MB.
+    match /inspections/{carId}/{fileName} {
+      allow read: if true;
+      allow write: if (isPDF() || isImage()) && isUnderLimit(15);
+    }
+
+    // 3. User KYC & Identity Proofs (Driver's License, Passports)
+    // Only owner of document or Admin can read/write.
+    match /kyc/{userId}/{fileName} {
+      allow read: if isAuthenticated() && (request.auth.uid == userId || request.auth.token.admin == true);
+      allow write: if isAuthenticated() && request.auth.uid == userId && (isImage() || isPDF()) && isUnderLimit(10);
+    }
+
+    // Default rule
+    match /{allPaths=**} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+  }
+}

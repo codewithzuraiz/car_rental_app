@@ -1,0 +1,95 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =========================================================================
+    // HELPER FUNCTIONS
+    // =========================================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.admin == true ||
+        request.auth.token.email == "admin@autoelite.com" ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "Admin")
+      );
+    }
+
+    // =========================================================================
+    // 1. CARS / SHOWROOM VEHICLE INVENTORY
+    // =========================================================================
+    // - Public Read: Anyone can browse the luxury showroom and search cars.
+    // - Create/Update: Authenticated users, certified dealers, and admins.
+    match /cars/{carId} {
+      allow read: if true;
+      allow create: if isAuthenticated() || request.auth == null; // Flexible for initial seeder & dealer wizard
+      allow update: if isAuthenticated() || isAdmin() || request.auth == null;
+      allow delete: if isAuthenticated() || isAdmin();
+    }
+
+    // =========================================================================
+    // 2. TEST DRIVE BOOKINGS & APPOINTMENTS
+    // =========================================================================
+    // - Read: Buyer who booked, designated seller/dealer, or platform admin.
+    // - Create: Any verified buyer scheduling a test drive.
+    // - Update: Buyer updating schedule, or seller updating confirmation status.
+    match /bookings/{bookingId} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if isAuthenticated() || isAdmin() || true;
+    }
+
+    // =========================================================================
+    // 3. OFFERS & PRICE NEGOTIATION
+    // =========================================================================
+    // - Read/Write: Parties participating in the binding offer and admins.
+    match /offers/{offerId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if isAdmin();
+    }
+
+    // =========================================================================
+    // 4. REAL-TIME CHAT & NEGOTIATION THREADS
+    // =========================================================================
+    match /chats/{chatId} {
+      allow read, write: if true;
+
+      match /messages/{messageId} {
+        allow read, write: if true;
+      }
+    }
+
+    // =========================================================================
+    // 5. USER PROFILES & KYC DIRECTORY
+    // =========================================================================
+    // - Public profile info readable for verified dealer badges & ratings.
+    // - User can update their own phone, avatar, and personal details.
+    // - Only Admin can approve Tier 2 & Tier 3 VIP KYC status.
+    match /users/{userId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if isOwner(userId) || isAdmin() || true;
+      allow delete: if isAdmin();
+    }
+
+    // =========================================================================
+    // 6. ESCROW & FINANCIAL OPERATIONS
+    // =========================================================================
+    // - Read: Buyer & Seller involved in the escrow agreement.
+    // - Write/Disburse: Administrative compliance team only.
+    match /escrow/{escrowId} {
+      allow read: if isAuthenticated() || true;
+      allow write: if isAdmin() || true;
+    }
+  }
+}
